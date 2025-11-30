@@ -439,6 +439,35 @@ let
             msg = "infused an unsupported type to __input: ${typeOf infusion}";
           };
 
+      __inputs =
+        path: infusion:
+        if isNonFunctorAttrs infusion then
+          target:
+          if target ? overrideScope then
+            target.overrideScope (final: prev: flip-infuse path infusion prev)
+          else
+            throw-error {
+              inherit path;
+              func = "inputs";
+              msg = "attempted to infuse to __inputs of an unsupported type: ${typeOf target}";
+            }
+        else if isFunction infusion then
+          target:
+          if target ? overrideScope then
+            target.overrideScope infusion
+          else
+            throw-error {
+              inherit path;
+              func = "inputs";
+              msg = "attempted to infuse to __inputs of an unsupported type: ${typeOf target}";
+            }
+        else
+          throw-error {
+            inherit path;
+            func = "inputs";
+            msg = "infused an unsupported type to __inputs: ${typeOf infusion}";
+          };
+
       __output =
         path: infusion:
         if isNonFunctorAttrs infusion then
@@ -487,6 +516,7 @@ let
       (nameValuePair "__prepend" __prepend)
       (nameValuePair "__append" __append)
       (nameValuePair "__input" __input)
+      (nameValuePair "__inputs" __inputs)
       (nameValuePair "__output" __output)
       (nameValuePair "__infuse" __infuse)
     ];
