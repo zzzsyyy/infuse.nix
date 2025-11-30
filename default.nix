@@ -128,9 +128,10 @@
 # failures.  Consider using `__assign = null` instead.
 #
 
-{ lib       ? import <nixpkgs/lib> { }
-, sugars    ? null  # see `default-sugars` below for explanation
-, ...
+{
+  lib ? import <nixpkgs/lib> { },
+  sugars ? null, # see `default-sugars` below for explanation
+  ...
 }:
 let
 
@@ -150,12 +151,33 @@ let
   # details.
 
   inherit (builtins)
-    typeOf length head tail attrValues intersectAttrs;
+    typeOf
+    length
+    head
+    attrValues
+    intersectAttrs
+    ;
   inherit (lib)
-    concatStringsSep flip mapAttrs isFunction isAttrs isDerivation
-    any all pipe showAttrPath nameValuePair listToAttrs
-    zipAttrsWith isList isString id flatten filter hasPrefix
-    attrNames filterAttrs optionalString hasAttr;
+    flip
+    mapAttrs
+    isFunction
+    isAttrs
+    isDerivation
+    any
+    all
+    showAttrPath
+    nameValuePair
+    listToAttrs
+    isList
+    isString
+    id
+    flatten
+    filter
+    hasPrefix
+    attrNames
+    optionalString
+    hasAttr
+    ;
 
   # This is a `throw`-tolerant version of toPretty, so that error diagnostics in
   # this file will print "<<throw>>" rather than triggering a cascading error.
@@ -164,10 +186,7 @@ let
     let
       try = builtins.tryEval (lib.generators.toPretty args val);
     in
-      if try.success
-      then try.value
-      else "<<throw>>";
-
+    if try.success then try.value else "<<throw>>";
 
   ##############################################################################
   # Utility+Helper functions
@@ -179,53 +198,55 @@ let
   # `lib.pipe` is too strict because it uses builtins.foldl' (there is a test
   # case in tests/default.nix that will fail if `flip pipe` is used instead).
   # This ought to be in <nixpkgs/lib>.
-  flip-pipe-lazy =
-    builtins.foldl' (f: g: x: g (f x)) id;
+  flip-pipe-lazy = builtins.foldl' (
+    f: g: x:
+    g (f x)
+  ) id;
 
   # Error reporting, including attrpath at which the error occurred
   throw-error =
-    { path ? null
-    , func
-    , msg
+    {
+      path ? null,
+      func,
+      msg,
     }:
     let
-      where = optionalString (path!=null) "at path ${showAttrPath path}: ";
+      where = optionalString (path != null) "at path ${showAttrPath path}: ";
     in
-      throw "infuse.${func}: ${where}${msg}";
+    throw "infuse.${func}: ${where}${msg}";
 
   # like `builtin.map`, but for functions that take an additional `path`
   # argument.  Type: [String] -> ([String] -> a -> b) -> [a] -> [b]
   map-with-path =
     path: f: list:
-    lib.imap0 (idx: v: f (path ++ ["[${toString idx}]"]) v) list;
+    lib.imap0 (idx: v: f (path ++ [ "[${toString idx}]" ]) v) list;
 
   # see doc/design-notes-on-missing-attributes.md
   get-default-argument =
     path: infusion:
-    infusion.__default_argument or
-      (if isNonFunctorAttrs infusion
-       then {}
-       else if isList infusion
-       then if length infusion != 0
-            then get-default-argument path (head infusion)
-            else missing-attribute-marker
-       else missing-attribute-marker);
+    infusion.__default_argument or (
+      if isNonFunctorAttrs infusion then
+        { }
+      else if isList infusion then
+        if length infusion != 0 then get-default-argument path (head infusion) else missing-attribute-marker
+      else
+        missing-attribute-marker
+    );
 
   # Replace any leafless attrsets anywhere within the infusion with `{}`
   # A leafless attrset is either `{}` or an attrset whose attrvalues are all
   # leafless attrsets.  See doc/design-notes-leafless-attrsets.md
   prune =
-    path:
-    infusion:
-    if isList infusion
-    then map-with-path path prune infusion
-    else if !(isNonFunctorAttrs infusion)
-    then infusion
-    else let pruned = mapAttrs (k: v: prune (path ++ [k]) v) infusion;
-    in if all (v: v == {}) (attrValues pruned)
-       then {}
-       else pruned;
-
+    path: infusion:
+    if isList infusion then
+      map-with-path path prune infusion
+    else if !(isNonFunctorAttrs infusion) then
+      infusion
+    else
+      let
+        pruned = mapAttrs (k: v: prune (path ++ [ k ]) v) infusion;
+      in
+      if all (v: v == { }) (attrValues pruned) then { } else pruned;
 
   ##############################################################################
   # Desugared Infusion
@@ -236,51 +257,48 @@ let
   # ...} into a normal function.  The exported API is `flip flip-*` (see `v1`).
   #
 
-  flip-infuse = path: infusion:
-    flip-infuse-desugared path (desugar path infusion);
+  flip-infuse = path: infusion: flip-infuse-desugared path (desugar path infusion);
 
-  flip-infuse-desugared = path: infusion:
-    flip-infuse-desugared-pruned path (prune path infusion);
+  flip-infuse-desugared = path: infusion: flip-infuse-desugared-pruned path (prune path infusion);
 
   flip-infuse-desugared-pruned =
-    path:     # attrpath relative to top-level call; only for error reporting
+    path: # attrpath relative to top-level call; only for error reporting
     infusion: # infusion to infuse upon the target attrset
 
     let
-      throw-err = msg: throw-error {
-        inherit path msg;
-        func = "flip-infuse-desugared-pruned";
-      };
+      throw-err =
+        msg:
+        throw-error {
+          inherit path msg;
+          func = "flip-infuse-desugared-pruned";
+        };
     in
 
-    if isFunction infusion
-    then infusion
+    if isFunction infusion then
+      infusion
 
-    else if isList infusion
-    then flip-pipe-lazy (map-with-path path flip-infuse-desugared-pruned infusion)
+    else if isList infusion then
+      flip-pipe-lazy (map-with-path path flip-infuse-desugared-pruned infusion)
 
-    else if !(isAttrs infusion)
-    then throw-err "desugared infusions must contain only functions, lists, and attrsets; found a ${typeOf infusion}"
-
-    else
-
-    target: # target attrset to be infused with the infusion
-    # we float the `target:` lambda *inward* to encourage thunk-sharing
-
-    if isDerivation target
-    then throw-err "attempted to infuse to subattributes of a derivation (did you forget to use desugar?)"
-
-    else if !(isAttrs target)
-    then throw-err "attempted to infuse an attrset to a target of type ${typeOf target}"
+    else if !(isAttrs infusion) then
+      throw-err "desugared infusions must contain only functions, lists, and attrsets; found a ${typeOf infusion}"
 
     else
-      target //
-        (mapAttrs
-          (k: v:
-            flip-infuse-desugared-pruned (path ++ [ k ]) v
-              (target.${k} or (get-default-argument path v)))
-          infusion);
 
+      target: # target attrset to be infused with the infusion
+      # we float the `target:` lambda *inward* to encourage thunk-sharing
+
+      if isDerivation target then
+        throw-err "attempted to infuse to subattributes of a derivation (did you forget to use desugar?)"
+
+      else if !(isAttrs target) then
+        throw-err "attempted to infuse an attrset to a target of type ${typeOf target}"
+
+      else
+        target
+        // (mapAttrs (
+          k: v: flip-infuse-desugared-pruned (path ++ [ k ]) v (target.${k} or (get-default-argument path v))
+        ) infusion);
 
   ##############################################################################
   # Desugaring
@@ -289,149 +307,178 @@ let
   # equality to create a special value which can never be (==)-equal to any
   # value created outside of this file.
   # [1]: https://code.tvl.fyi/tree/tvix/docs/src/value-pointer-equality.md
-  missing-attribute-marker = [[(throw "the missing-attribute-marker was forced")]];
+  missing-attribute-marker = [ [ (throw "the missing-attribute-marker was forced") ] ];
 
   # each of the __foo functions below takes its argument exactly as it appears
   # in the (sugared) infusion, and should return a *desugared* infusion.
-  default-sugars = let
+  default-sugars =
+    let
 
-    # the identity overlay, lambda-lifted to avoid allocations
-    identity-overlay = final: prev: prev;
+      # the identity overlay, lambda-lifted to avoid allocations
+      identity-overlay = final: prev: prev;
 
-    # `with-default default func` is the same as `func` -- except when applied to
-    # the `missing-attribute-marker`; in that case it returns `func default`
-    with-default =
-      default: func:
-      arg:
-      if arg == missing-attribute-marker
-      then func default
-      else func arg;
+      # `with-default default func` is the same as `func` -- except when applied to
+      # the `missing-attribute-marker`; in that case it returns `func default`
+      with-default =
+        default: func: arg:
+        if arg == missing-attribute-marker then func default else func arg;
 
-    __init = path: value: prev:
-      if prev == missing-attribute-marker
-      then value
-      else throw-error {
-        inherit path;
-        func = "desugar";
-        msg = "infused a value to __init but attribute already existed, value=${toPretty {} prev}; maybe you meant to use __assign or __default?";
-      };
+      __init =
+        path: value: prev:
+        if prev == missing-attribute-marker then
+          value
+        else
+          throw-error {
+            inherit path;
+            func = "desugar";
+            msg = "infused a value to __init but attribute already existed, value=${toPretty { } prev}; maybe you meant to use __assign or __default?";
+          };
 
-    __default = path: value:
-      with-default value id;
+      __default = path: value: with-default value id;
 
-    __assign = path: value: _:
-      value;
+      __assign =
+        path: value: _:
+        value;
 
-    __underlay = path: overlay:
-      if isNonFunctorAttrs overlay then
-        __underlay path (_: flip-infuse path overlay)
-      else if isFunction overlay then
-        with-default identity-overlay
-          (old:
+      __underlay =
+        path: overlay:
+        if isNonFunctorAttrs overlay then
+          __underlay path (_: flip-infuse path overlay)
+        else if isFunction overlay then
+          with-default identity-overlay (
+            old:
             assert isFunction old;
-            lib.composeExtensions overlay old)
-      else
-        throw-error {
-          inherit path;
-          func = "prelay";
-          msg = "applied to unsupported type: ${typeOf overlay}";
-        };
+            lib.composeExtensions overlay old
+          )
+        else
+          throw-error {
+            inherit path;
+            func = "prelay";
+            msg = "applied to unsupported type: ${typeOf overlay}";
+          };
 
-    __overlay = path: overlay:
-      if isNonFunctorAttrs overlay then
-        __overlay path (_: flip-infuse path overlay)
-      else if isFunction overlay then
-        with-default identity-overlay
-          (old:
+      __overlay =
+        path: overlay:
+        if isNonFunctorAttrs overlay then
+          __overlay path (_: flip-infuse path overlay)
+        else if isFunction overlay then
+          with-default identity-overlay (
+            old:
             assert isFunction old;
-            lib.composeExtensions old overlay)
-      else
-        throw-error {
-          inherit path;
-          func = "overlay";
-          msg = "applied to unsupported type: ${typeOf overlay}";
-        };
+            lib.composeExtensions old overlay
+          )
+        else
+          throw-error {
+            inherit path;
+            func = "overlay";
+            msg = "applied to unsupported type: ${typeOf overlay}";
+          };
 
-    __prepend = path: infusion:
-      if isString infusion then
-        with-default "" (string: assert isString string; infusion + string)
-      else if isList infusion then
-        with-default [] (list: assert isList list; infusion ++ list)
-      else
-        throw-error {
-          inherit path;
-          func = "prepend";
-          msg = "applied to unsupported type: ${typeOf infusion}";
-        };
+      __prepend =
+        path: infusion:
+        if isString infusion then
+          with-default "" (
+            string:
+            assert isString string;
+            infusion + string
+          )
+        else if isList infusion then
+          with-default [ ] (
+            list:
+            assert isList list;
+            infusion ++ list
+          )
+        else
+          throw-error {
+            inherit path;
+            func = "prepend";
+            msg = "applied to unsupported type: ${typeOf infusion}";
+          };
 
-    __append = path: infusion:
-      if isString infusion then
-        with-default "" (string: assert isString string; string + infusion)
-      else if isList infusion then
-        with-default [] (list: assert isList list; list ++ infusion)
-      else
-        throw-error {
-          inherit path;
-          func = "append";
-          msg = "applied to unsupported type: ${typeOf infusion}";
-        };
+      __append =
+        path: infusion:
+        if isString infusion then
+          with-default "" (
+            string:
+            assert isString string;
+            string + infusion
+          )
+        else if isList infusion then
+          with-default [ ] (
+            list:
+            assert isList list;
+            list ++ infusion
+          )
+        else
+          throw-error {
+            inherit path;
+            func = "append";
+            msg = "applied to unsupported type: ${typeOf infusion}";
+          };
 
-    __input = path: infusion:
-      if isNonFunctorAttrs infusion
-      then __input path (previousArgs: flip-infuse path infusion previousArgs)
-      else if isFunction infusion
-      then old:
-        if old?override then old.override infusion
-        else if isFunction old then arg: old (infusion arg)
+      __input =
+        path: infusion:
+        if isNonFunctorAttrs infusion then
+          __input path (previousArgs: flip-infuse path infusion previousArgs)
+        else if isFunction infusion then
+          old:
+          if old ? override then
+            old.override infusion
+          else if isFunction old then
+            arg: old (infusion arg)
+          else
+            throw-error {
+              inherit path;
+              func = "input";
+              msg = "attempted to infuse a function to __input attribute of a ${typeOf infusion}";
+            }
         else
           throw-error {
             inherit path;
             func = "input";
-            msg = "attempted to infuse a function to __input attribute of a ${typeOf infusion}";
-          }
-      else
-        throw-error {
-          inherit path;
-          func = "input";
-          msg = "infused an unsupported type to __input: ${typeOf infusion}";
-        };
+            msg = "infused an unsupported type to __input: ${typeOf infusion}";
+          };
 
-    __output = path: infusion:
-      if isNonFunctorAttrs infusion
-      then target: __output path (_: previousAttrs: flip-infuse path infusion previousAttrs) target
-      else if isFunction infusion
-      then target:
-        if isFunction target then arg: infusion (target arg)
-        else if isDerivation target && target?overrideAttrs
-        then
-          target.overrideAttrs
-            (final: prev:
-              let applied = infusion final; in
-              if !(isFunction applied)
-              then
-                throw-error
-                  {
-                    inherit path;
-                    func = "output";
-                    msg = "when infusing to drv.__output you must pass a *two*-argument curried function (i.e. `__output = finalAttrs: previousAttrs: ...`)";
-                  } else applied prev)
+      __output =
+        path: infusion:
+        if isNonFunctorAttrs infusion then
+          target: __output path (_: previousAttrs: flip-infuse path infusion previousAttrs) target
+        else if isFunction infusion then
+          target:
+          if isFunction target then
+            arg: infusion (target arg)
+          else if isDerivation target && target ? overrideAttrs then
+            target.overrideAttrs (
+              final: prev:
+              let
+                applied = infusion final;
+              in
+              if !(isFunction applied) then
+                throw-error {
+                  inherit path;
+                  func = "output";
+                  msg = "when infusing to drv.__output you must pass a *two*-argument curried function (i.e. `__output = finalAttrs: previousAttrs: ...`)";
+                }
+              else
+                applied prev
+            )
+          else
+            throw-error {
+              inherit path;
+              func = "input";
+              msg = "attempted to infuse to __output of an unsupported type: ${typeOf target}";
+            }
         else
           throw-error {
             inherit path;
-            func = "input";
-            msg = "attempted to infuse to __output of an unsupported type: ${typeOf target}";
-          }
-      else
-        throw-error {
-          inherit path;
-          func = "output";
-          msg = "applied to unsupported type: ${typeOf infusion}";
-        };
+            func = "output";
+            msg = "applied to unsupported type: ${typeOf infusion}";
+          };
 
-    __infuse = path: infusion:
-      desugar path infusion;
+      __infuse = path: infusion: desugar path infusion;
 
-    in [
+    in
+    [
       (nameValuePair "__init" __init)
       (nameValuePair "__default" __default)
       (nameValuePair "__assign" __assign)
@@ -444,18 +491,14 @@ let
       (nameValuePair "__infuse" __infuse)
     ];
 
-  enabled-sugars =
-    if sugars != null
-    then sugars
-    else default-sugars;
+  enabled-sugars = if sugars != null then sugars else default-sugars;
 
-  sugar-map =
-    listToAttrs enabled-sugars;
+  sugar-map = listToAttrs enabled-sugars;
 
-  sugar-list =
-    map (n: n.name) enabled-sugars;
+  sugar-list = map (n: n.name) enabled-sugars;
 
-  desugar = path: infusion:
+  desugar =
+    path: infusion:
     if isFunction infusion then
       infusion
     else if (isList infusion) then
@@ -469,27 +512,23 @@ let
     else if !(any (hasPrefix "__") (attrNames infusion)) then
       mapAttrs (k: v: desugar (path ++ [ k ]) v) infusion
     else if !(all (hasPrefix "__") (attrNames infusion)) then
-      throw-error
-        {
-          inherit path;
-          func = "desugar";
-          msg = "mixing special (hasPrefix \"__\") and non-special attributes at the same path level is not (yet) supported";
-        }
+      throw-error {
+        inherit path;
+        func = "desugar";
+        msg = "mixing special (hasPrefix \"__\") and non-special attributes at the same path level is not (yet) supported";
+      }
     else if (any (name: !(hasAttr name sugar-map)) (attrNames infusion)) then
-      throw-error
-        {
-          inherit path;
-          func = "desugar";
-          msg = "infusion contains __-prefixed attrnames which are not in the sugar-map: ${filter (name: !(hasAttr sugar-map name)) (attrNames infusion)}";
-        }
+      throw-error {
+        inherit path;
+        func = "desugar";
+        msg = "infusion contains __-prefixed attrnames which are not in the sugar-map: ${
+          filter (name: !(hasAttr sugar-map name)) (attrNames infusion)
+        }";
+      }
     else
-      map
-        (sugar-name:
-          sugar-map.${sugar-name}
-            (path ++ [ sugar-name ])
-            infusion.${sugar-name})
-        (filter (name: hasAttr name infusion) sugar-list);
-
+      map (sugar-name: sugar-map.${sugar-name} (path ++ [ sugar-name ]) infusion.${sugar-name}) (
+        filter (name: hasAttr name infusion) sugar-list
+      );
 
   ##############################################################################
   # Optimizer
@@ -501,61 +540,65 @@ let
     assert isAttrs a;
     assert isAttrs b;
     (a // b)
-    //
-    mapAttrs
-      (k: _:
-        let
-          composed = flatten [ (a.${k}) (b.${k}) ];
-        in
-          # uncommnent this line to trace optimizations
-          #lib.warn "compose-attrset-infusions ${toPretty {} a} ${toPretty {} b} = ${toPretty {} composed}"
-            composed
-      )
-      (intersectAttrs a b)
-  ;
+    // mapAttrs (
+      k: _:
+      let
+        composed = flatten [
+          (a.${k})
+          (b.${k})
+        ];
+      in
+      # uncommnent this line to trace optimizations
+      #lib.warn "compose-attrset-infusions ${toPretty {} a} ${toPretty {} b} = ${toPretty {} composed}"
+      composed
+    ) (intersectAttrs a b);
 
   # Flatten any nested lists, then merge any contiguous sequences of attrsets
   # within a list using the (//) operator.  This exploits the "distributive law
   # of `//` over `[]`
   optimize =
-    path:
-    infusion:
+    path: infusion:
 
-    if isNonFunctorAttrs infusion
-    then mapAttrs (k: v: optimize (path ++ [k]) v) infusion
+    if isNonFunctorAttrs infusion then
+      mapAttrs (k: v: optimize (path ++ [ k ]) v) infusion
 
-    else if !(isList infusion)
-    then infusion
+    else if !(isList infusion) then
+      infusion
 
-    else let
+    else
+      let
 
-      # an "accumulator" -- consists of a list of infusions `list` followed by
-      # an optional single attrset infusion `set`
-      nul = { list = []; set = null; };
-
-      # collapses an accumulator into a single list-infusion
-      collapse = acc: acc.list ++ lib.optionals (acc.set != null) [ acc.set ];
-
-      op = acc: next:
-        if isNonFunctorAttrs next
-        then {
-          inherit (acc) list;
-          set = if acc.set == null
-                then next
-                else compose-attrset-infusions acc.set next;
-        } else {
-          list = (collapse acc) ++ [ next ];
+        # an "accumulator" -- consists of a list of infusions `list` followed by
+        # an optional single attrset infusion `set`
+        nul = {
+          list = [ ];
           set = null;
         };
 
-      merge = list: collapse (lib.foldl op nul list);
-    in
+        # collapses an accumulator into a single list-infusion
+        collapse = acc: acc.list ++ lib.optionals (acc.set != null) [ acc.set ];
+
+        op =
+          acc: next:
+          if isNonFunctorAttrs next then
+            {
+              inherit (acc) list;
+              set = if acc.set == null then next else compose-attrset-infusions acc.set next;
+            }
+          else
+            {
+              list = (collapse acc) ++ [ next ];
+              set = null;
+            };
+
+        merge = list: collapse (lib.foldl op nul list);
+      in
       map-with-path path optimize (merge (flatten infusion));
 
-in {
+in
+{
   inherit v1;
 }
-
 
 ############################################################################
 #
